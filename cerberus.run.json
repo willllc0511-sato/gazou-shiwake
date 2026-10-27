@@ -1,0 +1,14 @@
+{
+  "run": {
+    "build": "docker build -q --build-arg DEV=1 -t gazou-shiwake:dev .",
+    "test": "docker run --rm gazou-shiwake:dev python -m pytest -q",
+    "start": "docker run --rm -p 127.0.0.1:18610:8000 -e DATABASE_URL=sqlite:////tmp/j.db gazou-shiwake:dev",
+    "url": "http://127.0.0.1:18610",
+    "health_path": "/healthz"
+  },
+  "pages": ["/"],
+  "flows": [
+    {"name": "classify", "description": "写真を1枚選ぶ → 上位3件の分類・確からしさ・仕分け先が出る → 最近の判定に1行増える（写真とファイル名は残らない）。tests/samples/banana.jpg は食品、mug.jpg は台所用品"},
+    {"name": "refuse", "description": "画像でない・壊れた・10MB超・4,000万画素超のファイルは、日本語の理由つきで400/413。1分20回を超えると429。/docs と /openapi.json は404"}
+  ]
+}
