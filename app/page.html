@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>商品写真の仕分け（見本）</title>
+<style>
+  :root { --ink:#1B2A4A; --text:#2D2D2D; --sub:#5B6475; --accent:#8B5E1E; --face:#F3ECE0; --line:#D9CBB8; --bg:#FFFFFF; --warn:#B35C19; }
+  @media (prefers-color-scheme: dark) { :root { --ink:#E6EAF2; --text:#E2E2E2; --sub:#A9B0BD; --accent:#D9A65A; --face:#2A2722; --line:#4A4339; --bg:#16181D; --warn:#E59A5C; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.7 -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { color:var(--ink); font-size: 1.5rem; margin: 0 0 4px; }
+  .lead { color:var(--sub); margin: 0 0 20px; font-size: .95rem; }
+  .drop { display:block; border:2px dashed var(--line); border-radius:12px; padding:28px 16px; text-align:center; cursor:pointer; background:var(--face); }
+  .drop strong { color:var(--ink); }
+  input[type=file] { display:none; }
+  .row { display:flex; gap:16px; margin-top:20px; flex-wrap:wrap; }
+  .preview { flex: 1 1 240px; }
+  .preview img { width:100%; border-radius:10px; border:1px solid var(--line); }
+  .result { flex: 1 1 280px; }
+  .cat { font-size: 1.6rem; font-weight: 700; color:var(--ink); }
+  .meter { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin:4px 0 10px; }
+  .meter span { display:block; height:100%; background:var(--accent); }
+  .err { color:var(--warn); font-weight:600; }
+  .muted { color:var(--sub); font-size:.85rem; }
+  table { width:100%; border-collapse: collapse; font-size:.9rem; margin-top:8px; }
+  td, th { text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); }
+  th { color:var(--sub); font-weight:600; }
+  h2 { color:var(--ink); font-size:1.1rem; margin:32px 0 4px; }
+  footer { margin-top:32px; color:var(--sub); font-size:.8rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>商品写真の仕分け（見本）</h1>
+  <p class="lead">写真を1枚選ぶと、何が写っているかを判定して、ネットショップの仕分け先（衣類・靴・電子機器・食品など）を出します。応募用に作った見本のアプリです。</p>
+
+  <label class="drop" id="drop">
+    <strong>写真を選ぶ</strong>（またはここへドラッグ）<br>
+    <span class="muted">JPEG・PNG・WebP、10MBまで。写真は判定に使うだけで保存しません</span>
+    <input type="file" id="file" accept="image/jpeg,image/png,image/webp">
+  </label>
+
+  <div class="row">
+    <div class="preview"><img id="img" alt="" hidden></div>
+    <div class="result" id="result" aria-live="polite"></div>
+  </div>
+
+  <h2>最近の判定</h2>
+  <p class="muted">この見本を使った人の判定です（写真は残さず、結果だけ記録しています）</p>
+  <table><thead><tr><th>日時</th><th>仕分け先</th><th>いちばん近い分類</th><th>時間</th></tr></thead><tbody id="hist"></tbody></table>
+
+  <footer>画像認識：ONNX Model Zoo の MobileNetV2（ImageNet の1000分類）をサーバーの CPU で動かしています。分類名は英語のままです。</footer>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function history() {
+  try {
+    const r = await fetch("/api/history");
+    const d = await r.json();
+    $("hist").innerHTML = d.items.map((x) =>
+      `<tr><td>${esc(new Date(x.created_at).toLocaleString("ja-JP"))}</td><td>${esc(x.category)}</td><td>${esc(x.top_label)}（${Math.round(x.top_score * 100)}%）</td><td>${esc(x.elapsed_ms)}ms</td></tr>`).join("")
+      || `<tr><td colspan="4" class="muted">まだありません</td></tr>`;
+  } catch (e) { $("hist").innerHTML = `<tr><td colspan="4" class="muted">履歴を読めませんでした</td></tr>`; }
+}
+
+async function send(file) {
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) { $("result").innerHTML = `<p class="err">画像が大きすぎます（10MBまで）</p>`; return; }
+  $("img").src = URL.createObjectURL(file); $("img").hidden = false;
+  $("result").innerHTML = `<p class="muted">判定しています…</p>`;
+  const fd = new FormData(); fd.append("file", file);
+  try {
+    const r = await fetch("/api/classify", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) { $("result").innerHTML = `<p class="err">${esc(d.error || "判定できませんでした")}</p>`; return; }
+    $("result").innerHTML = `<div class="muted">仕分け先</div><div class="cat">${esc(d.category)}</div>` +
+      d.guesses.map((g) => `<div>${esc(g.label)} <span class="muted">${Math.round(g.score * 100)}%</span></div><div class="meter"><span style="width:${Math.round(g.score * 100)}%"></span></div>`).join("") +
+      `<div class="muted">判定にかかった時間 ${esc(d.elapsed_ms)}ms</div>`;
+    history();
+  } catch (e) { $("result").innerHTML = `<p class="err">通信できませんでした。もう一度お試しください</p>`; }
+}
+
+$("file").addEventListener("change", (e) => send(e.target.files[0]));
+const drop = $("drop");
+drop.addEventListener("dragover", (e) => { e.preventDefault(); });
+drop.addEventListener("drop", (e) => { e.preventDefault(); send(e.dataTransfer.files[0]); });
+history();
+</script>
+</body>
+</html>

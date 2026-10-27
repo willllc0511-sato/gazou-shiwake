@@ -1,0 +1,33 @@
+name: gazou-shiwake
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: shiwake
+      POSTGRES_USER: shiwake
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shiwake -d shiwake"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+    mem_limit: 256m
+  app:
+    build: .
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url
+    secrets: [database_url]
+    depends_on:
+      db: {condition: service_healthy}
+    ports: ["127.0.0.1:${APP_PORT:-8610}:8000"]      # 外へは直接出さない。手前の nginx から入る
+    restart: unless-stopped
+    mem_limit: 512m
+volumes:
+  dbdata:
+secrets:
+  db_password:
+    file: ./secrets/db_password
+  database_url:
+    file: ./secrets/database_url
